@@ -1,6 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <PropertyGroup>
+<PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
@@ -9,8 +7,15 @@
     <AssemblyName>EflRecolor</AssemblyName>
     <RootNamespace>EflRecolor</RootNamespace>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <PublishSingleFile>true</PublishSingleFile>
-    <SelfContained>false</SelfContained>
-  </PropertyGroup>
 
-</Project>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+
+    <Version>1.0.0</Version>
+    <Product>EFL Recolor</Product>
+    <Company>ArcherOfLegend</Company>
+  </PropertyGroup>
