@@ -1,22 +1,8 @@
 // Efl.cs - parsing, smear detection and the recolour transform.
-// Straight port of efl_recolor.py, same numbers out.
 //
 // by ArcherOfLegend
 
 namespace EflRecolor;
-
-/// Two ways to recolour, because smears are not all the same.
-///
-///   Ryu     40 sites, grey 100%
-///   Chun    24 sites, grey 100%
-///   Spencer 76 sites, grey 89%, green 10%
-///   Hulk   200 sites, green 78%, blue 16%, cyan 4%, grey 2%
-///
-/// Tint sets one hue on everything - right for a plain grey smear where there
-/// is no relationship to lose. Shift rotates every hue by the same amount and
-/// leaves greys alone - right for one that already carries colour, because
-/// Hulk's green, blue and cyan stay three distinct things instead of
-/// collapsing into one.
 public enum Mode { Tint, Shift }
 
 public enum SiteKind { Primary, Primary2, Secondary, Secondary2, TrackKey }
