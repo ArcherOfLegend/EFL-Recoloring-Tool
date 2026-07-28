@@ -182,7 +182,8 @@ class MainForm : Form
     readonly Label _file = new(), _verdict = new(), _score = new();
     readonly Label _status = new(), _hex = new(), _tally = new();
     readonly FlowLayoutPanel _checks = new();
-    readonly Slider _hue = new(), _sat = new(), _val = new();
+    readonly Slider _hue = new(), _sat = new(), _val = new(), _con = new();
+    double _pivot = 0.5;
     readonly Panel _swatch = new();
     readonly TrailPreview _trail = new();
     readonly DataGridView _grid = new();
@@ -196,11 +197,13 @@ class MainForm : Form
     double Hue => _hue.Value * 360;
     double Sat => _sat.Value;              // full 0..1, so white is reachable
     double Val => _val.Value;              // scales the file's own brightness
+    double Con => Math.Pow(2, (_con.Value - 0.5) * 3); // log scale so the middle of the slider is 1.0 and both ends are usable
     Color Picked => Efl.HsvToColor(Hue, Sat, Val);
 
     Efl.Recolour Settings => new()
     {
         Hue = Hue, Sat = Sat, Val = Val, Mode = _mode,
+        Contrast = Con, Pivot = _pivot,
         KeepWhite = _keepWhite.Checked, DominantHue = _dominant,
     };
 
@@ -243,6 +246,7 @@ class MainForm : Form
         _hue.Value = 0.03;
         _sat.Value = 0.85;
         _val.Value = 1.0;
+        _con.Value = 0.5;
         Redraw();
     }
 
@@ -387,9 +391,17 @@ class MainForm : Form
         sliders.Controls.Add(Cap("Brightness"));
         _val.Width = 240;
         _val.Ramp = t => Efl.HsvToColor(Hue, Sat, t);
-        _val.Margin = new Padding(0);
+        _val.Margin = new Padding(0, 0, 0, 12);
         _val.Changed += (s, e) => Redraw();
         sliders.Controls.Add(_val);
+
+        sliders.Controls.Add(Cap("Contrast"));
+        _con.Width = 240;
+        _con.Ramp = t => Efl.HsvToColor(Hue, Sat,
+            Math.Clamp(((0.65 - _pivot) * Math.Pow(2, (t - 0.5) * 3) + _pivot) * Val, 0, 1));
+        _con.Margin = new Padding(0);
+        _con.Changed += (s, e) => Redraw();
+        sliders.Controls.Add(_con);
 
         body.Controls.Add(sliders);
 
@@ -579,6 +591,7 @@ class MainForm : Form
             _path = path;
             _sites = _efl.ColourSites();
             _dominant = _efl.DominantHue();
+            _pivot = _efl.MeanValue();
             // a mostly grey smear has no palette to preserve, so Tint. one that
             // already carries colour does, so Shift.
             _mode = _efl.GreyFraction() >= 0.80 ? Mode.Tint : Mode.Shift;

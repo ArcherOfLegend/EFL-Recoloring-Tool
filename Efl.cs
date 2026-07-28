@@ -339,6 +339,20 @@ public sealed class Efl
         return live.Count == 0 ? 1 : live.Count(IsNeutral) / (double)live.Count;
     }
 
+    public double MeanValue()
+    {
+        double sum = 0; int n = 0;
+        foreach (var s in ColourSites())
+        {
+            uint c = Colour(s.Offset);
+            if ((c & 0xFFFFFF) == 0) continue;
+            RgbToHsv((int)(c & 255), (int)((c >> 8) & 255), (int)((c >> 16) & 255),
+                     out _, out _, out double v);
+            sum += v; n++;
+        }
+        return n == 0 ? 0.5 : sum / n;
+    }
+
     /// circular mean hue of the coloured sites, ignoring greys. Shift rotates
     /// relative to this so the file's own palette moves as a unit.
     public double DominantHue()
@@ -372,6 +386,8 @@ public sealed class Efl
         public double Hue;
         public double Sat = 0.85;
         public double Val = 1.0;
+        public double Contrast = 1.0;
+        public double Pivot = 0.5;
         public Mode Mode = Mode.Tint;
         public bool KeepWhite;
         public double DominantHue;
@@ -392,7 +408,8 @@ public sealed class Efl
             else if (s <= GreyCut) { nh = h; ns = s; }        // grey stays grey
             else { nh = h + (Hue - DominantHue); ns = s; }    // rotate as a unit
 
-            Color c = HsvToColor(nh, ns, Math.Clamp(v * Val, 0, 1));
+            double nv = (v - Pivot) * Contrast + Pivot;
+            Color c = HsvToColor(nh, ns, Math.Clamp(nv * Val, 0, 1));
             return (a << 24) | ((uint)c.B << 16) | ((uint)c.G << 8) | c.R;
         }
     }
