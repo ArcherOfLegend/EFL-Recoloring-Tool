@@ -1,4 +1,6 @@
-<PropertyGroup>
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
@@ -19,3 +21,5 @@
     <Product>EFL Recolor</Product>
     <Company>ArcherOfLegend</Company>
   </PropertyGroup>
+
+</Project>
