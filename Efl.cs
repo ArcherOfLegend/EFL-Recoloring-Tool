@@ -1,8 +1,22 @@
 // Efl.cs - parsing, smear detection and the recolour transform.
+// Straight port of efl_recolor.py, same numbers out.
 //
 // by ArcherOfLegend
 
 namespace EflRecolor;
+
+/// Two ways to recolour, because smears are not all the same.
+///
+///   Ryu     40 sites, grey 100%
+///   Chun    24 sites, grey 100%
+///   Spencer 76 sites, grey 89%, green 10%
+///   Hulk   200 sites, green 78%, blue 16%, cyan 4%, grey 2%
+///
+/// Tint sets one hue on everything - right for a plain grey smear where there
+/// is no relationship to lose. Shift rotates every hue by the same amount and
+/// leaves greys alone - right for one that already carries colour, because
+/// Hulk's green, blue and cyan stay three distinct things instead of
+/// collapsing into one.
 public enum Mode { Tint, Shift }
 
 public enum SiteKind { Primary, Primary2, Secondary, Secondary2, TrackKey }
@@ -334,7 +348,7 @@ public sealed class Efl
         {
             uint c = Colour(s.Offset);
             if ((c & 0xFFFFFF) == 0) continue;
-            RgbToHsv((int)((c >> 16) & 255), (int)((c >> 8) & 255), (int)(c & 255),
+            RgbToHsv((int)(c & 255), (int)((c >> 8) & 255), (int)((c >> 16) & 255),
                      out double h, out double sat, out _);
             if (sat < 0.10) continue;
             x += Math.Cos(h * Math.PI / 180);
@@ -347,10 +361,10 @@ public sealed class Efl
     public static uint Retint(uint argb, double hue, double sat, double valueScale = 1.0)
     {
         uint a = (argb >> 24) & 255;
-        RgbToHsv((int)((argb >> 16) & 255), (int)((argb >> 8) & 255), (int)(argb & 255),
+        RgbToHsv((int)(argb & 255), (int)((argb >> 8) & 255), (int)((argb >> 16) & 255),
                  out _, out _, out double v);
         Color c = HsvToColor(hue, sat, Math.Clamp(v * valueScale, 0, 1));
-        return (a << 24) | ((uint)c.R << 16) | ((uint)c.G << 8) | c.B;
+        return (a << 24) | ((uint)c.B << 16) | ((uint)c.G << 8) | c.R;
     }
 
     public sealed class Recolour
@@ -368,7 +382,7 @@ public sealed class Efl
         public uint Apply(uint argb)
         {
             uint a = (argb >> 24) & 255;
-            RgbToHsv((int)((argb >> 16) & 255), (int)((argb >> 8) & 255), (int)(argb & 255),
+            RgbToHsv((int)(argb & 255), (int)((argb >> 8) & 255), (int)((argb >> 16) & 255),
                      out double h, out double s, out double v);
 
             if (KeepWhite && s <= GreyCut && v >= 0.98) return argb;
@@ -379,10 +393,10 @@ public sealed class Efl
             else { nh = h + (Hue - DominantHue); ns = s; }    // rotate as a unit
 
             Color c = HsvToColor(nh, ns, Math.Clamp(v * Val, 0, 1));
-            return (a << 24) | ((uint)c.R << 16) | ((uint)c.G << 8) | c.B;
+            return (a << 24) | ((uint)c.B << 16) | ((uint)c.G << 8) | c.R;
         }
     }
 
     public static Color ToColor(uint argb) =>
-        Color.FromArgb(255, (int)((argb >> 16) & 255), (int)((argb >> 8) & 255), (int)(argb & 255));
+        Color.FromArgb(255, (int)(argb & 255), (int)((argb >> 8) & 255), (int)((argb >> 16) & 255));
 }
