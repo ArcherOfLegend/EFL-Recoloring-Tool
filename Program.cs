@@ -729,7 +729,7 @@ class MainForm : Form
             if (problem != null) { Say("Not saved - " + problem + ".", true); return; }
 
             File.WriteAllBytes(d.FileName, patched.Data);
-            Say($"Saved {Path.GetFileName(d.FileName)}. Same size.", false);
+            Say($"Saved {Path.GetFileName(d.FileName)}.", false);
         }
         catch (Exception ex)
         {
