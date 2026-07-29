@@ -1,23 +1,10 @@
-// Efl.cs - parsing, smear detection and the recolour transform.
-// Straight port of efl_recolor.py, same numbers out.
-//
+// Efl.cs
 // by ArcherOfLegend
 
 namespace EflRecolor;
 
-/// Two ways to recolour, because smears are not all the same.
-///
-///   Ryu     40 sites, grey 100%
-///   Chun    24 sites, grey 100%
-///   Spencer 76 sites, grey 89%, green 10%
-///   Hulk   200 sites, green 78%, blue 16%, cyan 4%, grey 2%
-///
-/// Tint sets one hue on everything - right for a plain grey smear where there
-/// is no relationship to lose. Shift rotates every hue by the same amount and
-/// leaves greys alone - right for one that already carries colour, because
-/// Hulk's green, blue and cyan stay three distinct things instead of
-/// collapsing into one.
 public enum Mode { Tint, Shift }
+public enum SortBy { Brightness, Hue }
 
 public enum SiteKind { Primary, Primary2, Secondary, Secondary2, TrackKey }
 
@@ -37,27 +24,22 @@ public readonly struct Site
     };
 }
 
-public sealed class Check
-{
-    public string Name = "";
-    public string Detail = "";
-    public bool Passed;
-    /// notes don't count toward the score, they just tell you about the file
-    public bool Info;
-}
-
 public sealed class Efl
 {
     public const int DataBase = 0x30;
 
-    // fixed struct size per render tag. anything past this is tracks.
+    // size of the fixed struct per render tag. anything past this is track data.
+    // these are the smallest block seen for each tag, ie the case with no tracks.
     static readonly Dictionary<int, int> Fixed = new()
     {
         [0] = 0x1A0, [1] = 0x200, [2] = 0x1F0, [4] = 0x060,
         [5] = 0x1B0, [6] = 0x260, [10] = 0x080, [20] = 0x1C0,
     };
 
-    // where the second colour pair lives, per tag. tags 0 and 2 don't have one.
+    // second colour pair, offset depends on the tag because the tags are
+    // different subclasses. tags 0 and 2 don't have one. easy to miss by eye
+    // because the alpha is often 00, so 0x00003dff reads as a small int rather
+    // than a blue at zero opacity.
     static readonly Dictionary<int, int> SecondColour = new() { [6] = 0x178, [4] = 0x58 };
 
     public byte[] Data;
@@ -85,8 +67,9 @@ public sealed class Efl
             for (int j = 0; j < 4; j++)
             {
                 int p = DataBase + i * 16 + j * 4;
-                // packed [u8 tag][u24 offset], and the offset is relative to 0x30.
-                // an offset of 0 means null
+
+                // packed [u8 tag][u24 offset], and the offset is relative to
+                // 0x30, an offset of 0 means null.
                 int off = Data[p + 1] | (Data[p + 2] << 8) | (Data[p + 3] << 16);
                 row[j] = (Data[p], off == 0 ? -1 : DataBase + off);
             }
@@ -109,7 +92,6 @@ public sealed class Efl
         return set.ToList();
     }
 
-
     public List<(int off, int size, int tag)> RenderBlocks()
     {
         var b = Pool(1);
@@ -127,7 +109,6 @@ public sealed class Efl
         }
         return outp;
     }
-
 
     bool TrackOk(int p, int count, int end)
     {
@@ -152,7 +133,8 @@ public sealed class Efl
         return a > 1e-4f && a < 1e5f;
     }
 
-
+    // every offset holding a colour. three kinds: the pair at 0x48, the tag
+    // dependent second pair, and colour keys inside the tracks.
     public List<Site> ColourSites()
     {
         var sites = new List<Site>();
@@ -182,6 +164,7 @@ public sealed class Efl
                         live++;
                         if (!LooksLikeFloat(v0)) colourish++;
                     }
+
                     // all keys in a track are the same type
                     if (live > 0 && colourish * 2 > live)
                         for (int k = 0; k < count; k++)
@@ -219,64 +202,69 @@ public sealed class Efl
         return Math.Max(r, Math.Max(g, b)) - Math.Min(r, Math.Min(g, b)) <= 24;
     }
 
-    public List<Check> Detect()
+    // undo is just a stack of these...
+    public byte[] Snapshot() => (byte[])Data.Clone();
+
+    public void Restore(byte[] snap)
     {
-        var sites = ColourSites();
-        var live = new List<uint>();
-        foreach (var s in sites)
-        {
-            uint c = Colour(s.Offset);
-            if ((c & 0xFFFFFF) != 0) live.Add(c);
-        }
-        double neutral = live.Count == 0 ? 0 : live.Count(IsNeutral) / (double)live.Count;
-
-        var uniq = Textures().Distinct().OrderBy(x => x).ToList();
-        bool trail = uniq.Any(t => t.ToLower().Contains("kiseki"));
-
-        var spawn = new List<int>();
-        foreach (int off in Pool(0))
-        {
-            uint v = Colour(off + 0x48);
-            if ((v & 0xFFFF) != 0) spawn.Add((int)(v & 0xFFFF));
-            if (((v >> 16) & 0xFFFF) != 0) spawn.Add((int)((v >> 16) & 0xFFFF));
-        }
-        double oneRatio = spawn.Count == 0 ? 0 : spawn.Count(x => x == 1) / (double)spawn.Count;
-
-        var motions = Pool(3);
-        int degen = 0;
-        for (int i = 0; i < motions.Count; i++)
-        {
-            int o = motions[i];
-            int next = i + 1 < motions.Count ? motions[i + 1] : _groupPtrs[0];
-            if (next - o < 0x50) { degen++; continue; }
-            bool allZero = true;
-            for (int k = 0; k < 6; k++)
-                if (BitConverter.ToSingle(Data, o + 0x10 + k * 4) != 0f) { allZero = false; break; }
-            if (allZero) degen++;
-        }
-
-        string texList = uniq.Count == 0 ? "none"
-            : uniq.Count <= 3 ? string.Join(", ", uniq)
-            : $"{uniq.Count}: " + string.Join(", ", uniq.Take(2)) + ", ...";
-
-        return new List<Check>
-        {
-            new() { Name = "Uses a trail sheet", Passed = trail,
-                    Detail = trail ? "found a kiseki texture" : "no kiseki texture" },
-            new() { Name = "Few textures", Passed = uniq.Count <= 6, Detail = texList },
-            new() { Name = "Particle percent per emitter", Passed = oneRatio >= 0.80,
-                    Detail = $"{oneRatio * 100:0}% of emitters" },
-            new() { Name = "Low Motion Count", Passed = degen == motions.Count,
-                    Detail = $"{degen} of {motions.Count} motion blocks" },
-            new() { Info = true, Name = neutral >= 0.80 ? "Neutral" : "Already coloured",
-                    Detail = neutral >= 0.80
-                        ? "recolouring tints it"
-                        : $"only {neutral * 100:0}% grey." },
-        };
+        if (snap != null && snap.Length == Data.Length) Array.Copy(snap, Data, Data.Length);
     }
 
-    /// nothing should have moved. same size, header still adds up, and every
-    /// render block still walks end to end.
+    // writes into this copy at the offsets given, which is what lets you do one recolour and then another on top of it. returns the number of sites changed.
+    public int ApplyTo(IEnumerable<Site> sites, Recolour rc)
+    {
+        int n = 0;
+        foreach (var s in sites)
+        {
+            uint before = Colour(s.Offset);
+            uint after = rc.Apply(before);
+            if (after != before) { SetU32(s.Offset, after); n++; }
+        }
+        return n;
+    }
+
+    public List<uint> Palette(SortBy by)
+    {
+        var seen = new List<uint>();
+        var set = new HashSet<uint>();
+        foreach (var s in ColourSites())
+        {
+            uint c = Colour(s.Offset);
+            if ((c & 0xFFFFFF) == 0) continue;
+            if (set.Add(c)) seen.Add(c);
+        }
+        switch (by)
+        {
+            case SortBy.Hue:
+                return seen.OrderBy(c => Sat(c) < 0.08 ? -1 : Hue(c))
+                           .ThenByDescending(Value).ToList();
+            default:
+                return seen.OrderByDescending(Value).ToList();
+        }
+    }
+
+    static double Hue(uint c)
+    {
+        RgbToHsv((int)(c & 255), (int)((c >> 8) & 255), (int)((c >> 16) & 255),
+                 out double h, out _, out _);
+        return h;
+    }
+
+    static double Sat(uint c)
+    {
+        RgbToHsv((int)(c & 255), (int)((c >> 8) & 255), (int)((c >> 16) & 255),
+                 out _, out double s, out _);
+        return s;
+    }
+
+    static double Value(uint c)
+    {
+        RgbToHsv((int)(c & 255), (int)((c >> 8) & 255), (int)((c >> 16) & 255),
+                 out _, out _, out double v);
+        return v;
+    }
+
+    // nothing should have moved. same size, header still adds up, every render block still reads correctly, and the list of colour sites is the same. returns null if all is well, otherwise a string describing what changed.
     public string Verify(Efl before)
     {
         if (Data.Length != before.Data.Length) return "the file changed size";
@@ -297,10 +285,7 @@ public sealed class Efl
         return null;
     }
 
-    // ---- colour maths -------------------------------------------------------
     // System.Drawing gives HSL, not HSV, and we want value so the trail keeps
-    // its falloff. So do it by hand.
-
     public static void RgbToHsv(int r, int g, int b, out double h, out double s, out double v)
     {
         double rf = r / 255.0, gf = g / 255.0, bf = b / 255.0;
@@ -331,7 +316,6 @@ public sealed class Efl
                               (int)Math.Round((b + m) * 255));
     }
 
-    /// how grey the file is overall. drives which mode gets suggested.
     public double GreyFraction()
     {
         var live = ColourSites().Select(s => Colour(s.Offset))
@@ -339,6 +323,7 @@ public sealed class Efl
         return live.Count == 0 ? 1 : live.Count(IsNeutral) / (double)live.Count;
     }
 
+    // contrast pivots here rather than 0.5. a smear's brightness sits up near 1.0, so if you scale it down from 0.5 it goes black. the mean value is a better pivot for the file's own brightness.
     public double MeanValue()
     {
         double sum = 0; int n = 0;
@@ -353,8 +338,8 @@ public sealed class Efl
         return n == 0 ? 0.5 : sum / n;
     }
 
-    /// circular mean hue of the coloured sites, ignoring greys. Shift rotates
-    /// relative to this so the file's own palette moves as a unit.
+    // circular mean over the coloured sites, greys ignored. shift rotates relative to the dominant hue, so this is the hue to shift from. if there are no coloured sites, returns 0.
+
     public double DominantHue()
     {
         double x = 0, y = 0;
@@ -372,6 +357,7 @@ public sealed class Efl
         double d = Math.Atan2(y, x) * 180 / Math.PI;
         return d < 0 ? d + 360 : d;
     }
+
     public static uint Retint(uint argb, double hue, double sat, double valueScale = 1.0)
     {
         uint a = (argb >> 24) & 255;
@@ -392,7 +378,6 @@ public sealed class Efl
         public bool KeepWhite;
         public double DominantHue;
 
-        /// a site counts as grey below this saturation
         const double GreyCut = 0.06;
 
         public uint Apply(uint argb)
@@ -401,12 +386,13 @@ public sealed class Efl
             RgbToHsv((int)(argb & 255), (int)((argb >> 8) & 255), (int)((argb >> 16) & 255),
                      out double h, out double s, out double v);
 
+            // capcom left hulk's white highlights alone when they did costume 2
             if (KeepWhite && s <= GreyCut && v >= 0.98) return argb;
 
             double nh, ns;
             if (Mode == Mode.Tint) { nh = Hue; ns = Sat; }
-            else if (s <= GreyCut) { nh = h; ns = s; }        // grey stays grey
-            else { nh = h + (Hue - DominantHue); ns = s; }    // rotate as a unit
+            else if (s <= GreyCut) { nh = h; ns = s; }
+            else { nh = h + (Hue - DominantHue); ns = s; }
 
             double nv = (v - Pivot) * Contrast + Pivot;
             Color c = HsvToColor(nh, ns, Math.Clamp(nv * Val, 0, 1));
