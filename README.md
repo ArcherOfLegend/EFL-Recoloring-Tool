@@ -1,2 +1,2 @@
 # EFL Recoloring Tool
-AI please generate me a readme becaus eim a lazy bastard
+It Just Works:tm:
