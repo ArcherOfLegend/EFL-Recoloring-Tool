@@ -38,7 +38,7 @@ dotnet run
 
 ## Thanks
 
-Thanks to the UVMC3 Modding Discord for keeping the dream alive. Thank you to EternalYoshi and MooCartoons for feedback.
+Thanks to the UMVC3 Modding Discord for keeping the dream alive. Thank you to EternalYoshi and MooCartoons for feedback.
 
 ## License
 
