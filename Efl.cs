@@ -32,7 +32,7 @@ public sealed class Efl
     // these are the smallest block seen for each tag, ie the case with no tracks.
     static readonly Dictionary<int, int> Fixed = new()
     {
-        [0] = 0x1A0, [1] = 0x200, [2] = 0x1F0, [4] = 0x060,
+        [0] = 0x1A0, [1] = 0x1C0, [2] = 0x1F0, [4] = 0x060,
         [5] = 0x1B0, [6] = 0x260, [10] = 0x080, [20] = 0x1C0,
     };
 
