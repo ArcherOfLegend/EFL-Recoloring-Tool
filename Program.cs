@@ -293,7 +293,6 @@ class MainForm : Form
     readonly Button[] _sortBtns = { Ink.Btn("Light to dark"), Ink.Btn("RGB") };
     readonly Label _selInfo = new();
     private static readonly CheckBox checkBox = new();
-    readonly CheckBox _keepWhite = checkBox;
     readonly Button _tintBtn = Ink.Btn("Tint"), _shiftBtn = Ink.Btn("Shift");
     Mode? _mode;
     double _dominant;
