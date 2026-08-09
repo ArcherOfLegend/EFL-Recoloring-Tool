@@ -127,6 +127,27 @@ class Slider : Control
     }
 }
 
+// alpha checkerboard for the sliders and swatch.
+static class Checker
+{
+    public static readonly TextureBrush Brush = Build();
+
+    static TextureBrush Build()
+    {
+        const int cell = 6;
+        var bmp = new Bitmap(cell * 2, cell * 2);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            using var dark = new SolidBrush(Color.FromArgb(0x22, 0x22, 0x26));
+            using var light = new SolidBrush(Color.FromArgb(0x2E, 0x2E, 0x33));
+            g.FillRectangle(dark, 0, 0, cell * 2, cell * 2);
+            g.FillRectangle(light, 0, 0, cell, cell);
+            g.FillRectangle(light, cell, cell, cell, cell);
+        }
+        return new TextureBrush(bmp) { WrapMode = System.Drawing.Drawing2D.WrapMode.Tile };
+    }
+}
+
 // top strip is the file as loaded and never changes. bottom is the working copy
 // plus whatever's pending. selection is keyed to the original colours, not the
 // working ones, so it can't go stale after an apply.
@@ -201,58 +222,64 @@ class RampStrip : Control
         SelectionCommitted?.Invoke(this, EventArgs.Empty);
     }
 
-    static void Strip(Graphics g, Rectangle r, List<uint> cols)
-    {
-        if (cols.Count == 0 || r.Width < 2 || r.Height < 2) return;
-        if (cols.Count == 1)
+    static Color WithAlpha(uint c) => Color.FromArgb(
+            (int)((c >> 24) & 255), (int)(c & 255), (int)((c >> 8) & 255), (int)((c >> 16) & 255));
+
+        static void Strip(Graphics g, Rectangle r, List<uint> cols)
         {
-            using var solid = new SolidBrush(Efl.ToColor(cols[0]));
-            g.FillRectangle(solid, r);
-            return;
+            if (cols.Count == 0 || r.Width < 2 || r.Height < 2) return;
+
+            g.FillRectangle(Checker.Brush, r);
+
+            if (cols.Count == 1)
+            {
+                using var solid = new SolidBrush(WithAlpha(cols[0]));
+                g.FillRectangle(solid, r);
+                return;
+            }
+            var blend = new ColorBlend(cols.Count)
+            {
+                Colors = cols.Select(WithAlpha).ToArray(),
+                Positions = Enumerable.Range(0, cols.Count)
+                                    .Select(i => i / (float)(cols.Count - 1)).ToArray(),
+            };
+            using var br = new LinearGradientBrush(r, Color.Black, Color.White, 0f)
+            { InterpolationColors = blend };
+            g.FillRectangle(br, r);
         }
-        var blend = new ColorBlend(cols.Count)
-        {
-            Colors = cols.Select(Efl.ToColor).ToArray(),
-            Positions = Enumerable.Range(0, cols.Count)
-                                  .Select(i => i / (float)(cols.Count - 1)).ToArray(),
-        };
-        using var br = new LinearGradientBrush(r, Color.Black, Color.White, 0f)
-        { InterpolationColors = blend };
-        g.FillRectangle(br, r);
-    }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
         using (var bg = new SolidBrush(Ink.Card)) g.FillRectangle(bg, ClientRectangle);
-
+ 
         if (Colours.Count == 0)
         {
             TextRenderer.DrawText(g, "Open a file to see its colours.", Ink.Ui(),
                                   new Point(2, 8), Ink.Dim);
             return;
         }
-
+ 
         bool narrowed = Selected.Count > 0;
         var after = Preview == null ? Colours : Colours.Select(c =>
             (!narrowed || Selected.Contains(c)) ? Preview(c) : c).ToList();
-
+ 
         var top = new Rectangle(Lab, PadTop, Span, RowH);
         var bot = new Rectangle(Lab, PadTop + RowH + Gap, Span, RowH);
         TextRenderer.DrawText(g, "now", Ink.Mono(8.5f), new Point(0, PadTop + RowH / 2 - 8), Ink.Dim);
         TextRenderer.DrawText(g, "after", Ink.Mono(8.5f), new Point(0, bot.Top + RowH / 2 - 8), Ink.Dim);
         Strip(g, top, Colours);
         Strip(g, bot, after);
-
+ 
         if (!narrowed) return;
-
+ 
         int lo = int.MaxValue, hi = -1;
         for (int i = 0; i < Colours.Count; i++)
             if (Selected.Contains(Colours[i])) { lo = Math.Min(lo, i); hi = Math.Max(hi, i); }
         if (hi < 0) return;
-
+ 
         int x1 = XOf(lo), x2 = XOf(hi + 1);
-        using (var veil = new SolidBrush(Color.FromArgb(150, Ink.Card)))
+        using (var veil = new SolidBrush(Color.FromArgb(190, Ink.Card)))
         {
             g.FillRectangle(veil, Lab, bot.Top, x1 - Lab, RowH);
             g.FillRectangle(veil, x2, bot.Top, Lab + Span - x2, RowH);
@@ -683,6 +710,15 @@ class MainForm : Form
         return card;
     }
 
+    static Color Blend(Color c, int alpha)
+        {
+            double f = alpha / 255.0;
+            return Color.FromArgb(
+                (int)(Ink.Card.R + (c.R - Ink.Card.R) * f),
+                (int)(Ink.Card.G + (c.G - Ink.Card.G) * f),
+                (int)(Ink.Card.B + (c.B - Ink.Card.B) * f));
+        }
+
     // DataGridView doesn't expose DoubleBuffered, hence the reflection
     static void Buffer(Control c)
     {
@@ -1022,6 +1058,8 @@ class MainForm : Form
                                    "", $"{after:x8}", $"{Efl.AlphaOf(after)}");
             var cb = Efl.ToColor(before);
             var ca = Efl.ToColor(after);
+            cb = Blend(cb, Efl.AlphaOf(before));
+            ca = Blend(ca, Efl.AlphaOf(after));
             _grid.Rows[i].Cells[2].Style.BackColor = cb;
             _grid.Rows[i].Cells[2].Style.SelectionBackColor = cb;
             _grid.Rows[i].Cells[5].Style.BackColor = ca;
