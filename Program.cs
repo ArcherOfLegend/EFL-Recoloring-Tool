@@ -279,7 +279,8 @@ class MainForm : Form
 
     readonly Label _file = new();
     readonly Label _status = new(), _hex = new(), _tally = new();
-    readonly Slider _hue = new(), _sat = new(), _val = new(), _con = new();
+    readonly Slider _hue = new(), _sat = new(), _val = new(), _con = new(), _alpha = new();
+    readonly CheckBox _keepWhite = new(), _alphaSet = new();
     readonly Panel _swatch = new();
     readonly RampStrip _ramp = new();
     readonly DataGridView _grid = new();
@@ -291,7 +292,8 @@ class MainForm : Form
     readonly Button _resetBtn = Ink.Btn("Reset");
     readonly Button[] _sortBtns = { Ink.Btn("Light to dark"), Ink.Btn("RGB") };
     readonly Label _selInfo = new();
-    readonly CheckBox _keepWhite = new();
+    private static readonly CheckBox checkBox = new();
+    readonly CheckBox _keepWhite = checkBox;
     readonly Button _tintBtn = Ink.Btn("Tint"), _shiftBtn = Ink.Btn("Shift");
     Mode? _mode;
     double _dominant;
@@ -308,6 +310,8 @@ class MainForm : Form
         Hue = Hue, Sat = Sat, Val = Val, Contrast = Con, Pivot = _pivot,
         Mode = _mode ?? Mode.Tint,
         KeepWhite = _keepWhite.Checked, DominantHue = _dominant,
+        AlphaScale = _alphaSet.Checked ? 1.0 : Math.Pow(2, (_alpha.Value - 0.5) * 2),
+        AlphaSet = _alphaSet.Checked ? (int)Math.Round(_alpha.Value * 255) : (int?)null,
     };
 
     public MainForm()
@@ -362,6 +366,7 @@ class MainForm : Form
         _sat.Value = 0.85;
         _val.Value = 1.0;
         _con.Value = 0.5;
+        _alpha.Value = 0.5;
         Redraw();
     }
 
@@ -530,6 +535,41 @@ class MainForm : Form
         _val.Changed += (s, e) => Redraw(false);
         _val.Committed += (s, e) => Redraw();
         sliders.Controls.Add(_val);
+
+        var alphaCap = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Ink.Card,
+            Margin = new Padding(0, 0, 0, 3),
+        };
+        alphaCap.Controls.Add(new Label
+        {
+            Text = "Alpha",
+            AutoSize = true,
+            ForeColor = Ink.Dim,
+            Margin = new Padding(0, 3, 12, 0),
+        });
+        _alphaSet.Text = "set exactly";
+        _alphaSet.AutoSize = true;
+        _alphaSet.ForeColor = Ink.Dim;
+        _alphaSet.Margin = new Padding(0);
+        _alphaSet.CheckedChanged += (s, e) => Redraw();
+        alphaCap.Controls.Add(_alphaSet);
+        sliders.Controls.Add(alphaCap);
+
+        _alpha.Width = 240;
+        _alpha.Ramp = t =>
+        {
+            double f = _alphaSet.Checked ? t : Math.Min(1, Math.Pow(2, (t - 0.5) * 2));
+            int g = (int)(0x18 + f * (0xEC - 0x18));
+            return Color.FromArgb(g, g, g);
+        };
+        _alpha.Margin = new Padding(0, 0, 0, 12);
+        _alpha.Changed += (s, e) => Redraw(false);
+        _alpha.Committed += (s, e) => Redraw();
+        sliders.Controls.Add(_alpha);
 
         sliders.Controls.Add(Cap("Contrast"));
         _con.Width = 240;
@@ -712,12 +752,14 @@ class MainForm : Form
             SortMode = DataGridViewColumnSortMode.NotSortable,
         });
 
-        Col("Where", 26);
-        Col("What", 24);
+        Col("Where", 22);
+        Col("What", 20);
         Chip();
-        Col("Now", 25);
+        Col("Now", 20);
+        Col("A", 9);
         Chip();
-        Col("After", 25);
+        Col("After", 20);
+        Col("A", 9);
     }
 
     Control Footer()
@@ -893,10 +935,16 @@ class MainForm : Form
         _swatch.Invalidate();
         _sat.Invalidate();
         _hue.Invalidate();
+        string alphaBit = _alphaSet.Checked
+                    ? $"   alpha = {(int)Math.Round(_alpha.Value * 255)}"
+                    : Math.Abs(_alpha.Value - 0.5) < 0.01
+                        ? ""
+                        : $"   alpha x{Math.Pow(2, (_alpha.Value - 0.5) * 2):0.00}";
         _hex.Text = !_mode.HasValue
             ? "pick Tint or Shift to start"
             : $"#{Picked.R:X2}{Picked.G:X2}{Picked.B:X2}"
-              + (_mode == Mode.Shift ? $"   shifting from {_dominant:0} deg" : "");
+              + (_mode == Mode.Shift ? $"   shifting from {_dominant:0} deg" : "")
+              + alphaBit;
 
         if (_work == null)
         {
@@ -971,13 +1019,16 @@ class MainForm : Form
             uint before = _work.Colour(s.Offset);
             uint after = ready && target.Contains(s) ? rc.Apply(before) : before;
             int i = _grid.Rows.Add($"0x{s.Offset:X6}", s.KindLabel, "",
-                                   $"{before:x8}", "", $"{after:x8}");
+                                   $"{before:x8}", $"{Efl.AlphaOf(before)}",
+                                   "", $"{after:x8}", $"{Efl.AlphaOf(after)}");
             var cb = Efl.ToColor(before);
             var ca = Efl.ToColor(after);
             _grid.Rows[i].Cells[2].Style.BackColor = cb;
             _grid.Rows[i].Cells[2].Style.SelectionBackColor = cb;
-            _grid.Rows[i].Cells[4].Style.BackColor = ca;
-            _grid.Rows[i].Cells[4].Style.SelectionBackColor = ca;
+            _grid.Rows[i].Cells[5].Style.BackColor = ca;
+            _grid.Rows[i].Cells[5].Style.SelectionBackColor = ca;
+            if (Efl.AlphaOf(before) != Efl.AlphaOf(after))
+                _grid.Rows[i].Cells[7].Style.ForeColor = Ink.Good;
         }
         _grid.ResumeLayout();
         _grid.ClearSelection();

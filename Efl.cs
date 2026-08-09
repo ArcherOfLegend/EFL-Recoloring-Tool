@@ -257,6 +257,7 @@ public sealed class Efl
         return s;
     }
 
+    public static int AlphaOf(uint c) => (int)((c >> 24) & 255);
     static double Value(uint c)
     {
         RgbToHsv((int)(c & 255), (int)((c >> 8) & 255), (int)((c >> 16) & 255),
@@ -374,6 +375,8 @@ public sealed class Efl
         public double Val = 1.0;
         public double Contrast = 1.0;
         public double Pivot = 0.5;
+        public double AlphaScale = 1.0;
+        public int? AlphaSet;
         public Mode Mode = Mode.Tint;
         public bool KeepWhite;
         public double DominantHue;
@@ -383,11 +386,15 @@ public sealed class Efl
         public uint Apply(uint argb)
         {
             uint a = (argb >> 24) & 255;
+            a = AlphaSet.HasValue
+                ? (uint)Math.Clamp(AlphaSet.Value, 0, 255)
+                : (uint)Math.Clamp((int)Math.Round(a * AlphaScale), 0, 255);
             RgbToHsv((int)(argb & 255), (int)((argb >> 8) & 255), (int)((argb >> 16) & 255),
                      out double h, out double s, out double v);
 
             // capcom left hulk's white highlights alone when they did costume 2
-            if (KeepWhite && s <= GreyCut && v >= 0.98) return argb;
+            if (KeepWhite && s <= GreyCut && v >= 0.98)
+                return (a << 24) | (argb & 0xFFFFFF);
 
             double nh, ns;
             if (Mode == Mode.Tint) { nh = Hue; ns = Sat; }
