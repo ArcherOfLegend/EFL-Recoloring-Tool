@@ -33,7 +33,7 @@ public sealed class Efl
     static readonly Dictionary<int, int> Fixed = new()
     {
         [0] = 0x1A0, [1] = 0x1C0, [2] = 0x1F0, [4] = 0x060,
-        [5] = 0x1B0, [6] = 0x260, [10] = 0x080, [20] = 0x1C0,
+        [5] = 0x140, [6] = 0x260, [10] = 0x080, [20] = 0x1C0,
     };
 
     // second colour pair, offset depends on the tag because the tags are
@@ -79,6 +79,8 @@ public sealed class Efl
         int b = DataBase + NodeCount * 16;
         for (int i = 0; i < GroupCount; i++)
             _groupPtrs.Add(U32(b + 4 * i) + DataBase);
+
+        TightenFixed();
     }
 
     public int U32(int off) => BitConverter.ToInt32(Data, off);
@@ -90,6 +92,17 @@ public sealed class Efl
         var set = new SortedSet<int>();
         foreach (var n in _nodes) if (n[col].off >= 0) set.Add(n[col].off);
         return set.ToList();
+    }
+
+    readonly Dictionary<int, int> _fixed = new();
+
+    int FixedFor(int tag) =>
+        _fixed.TryGetValue(tag, out int v) ? v : Fixed.TryGetValue(tag, out int d) ? d : 0;
+
+    void TightenFixed()
+    {
+        foreach (var (off, size, tag) in RenderBlocks())
+            if (size < FixedFor(tag)) _fixed[tag] = size;
     }
 
     public List<(int off, int size, int tag)> RenderBlocks()
@@ -149,7 +162,8 @@ public sealed class Efl
                 sites.Add(new Site(off + sec + 4, SiteKind.Secondary2));
             }
 
-            if (!Fixed.TryGetValue(tag, out int fixedSize)) continue;
+            int fixedSize = FixedFor(tag);
+            if (fixedSize == 0 || fixedSize > size) continue;
             int p = off + fixedSize, end = off + size;
             while (p + 4 <= end)
             {
@@ -272,7 +286,8 @@ public sealed class Efl
         if (U32(8) + DataBase != Data.Length) return "the header no longer matches the file size";
         foreach (var (off, size, tag) in RenderBlocks())
         {
-            if (!Fixed.TryGetValue(tag, out int fixedSize)) continue;
+            int fixedSize = FixedFor(tag);
+            if (fixedSize == 0 || fixedSize > size) continue;
             int p = off + fixedSize, end = off + size;
             while (p + 4 <= end)
             {
