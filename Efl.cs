@@ -1,9 +1,10 @@
-// Efl.cs
+// Efl.cs - parsing and the recolour maths.
 // by ArcherOfLegend
 
 namespace EflRecolor;
 
 public enum Mode { Tint, Shift }
+
 public enum SortBy { Brightness, Hue }
 
 public enum SiteKind { Primary, Primary2, Secondary, Secondary2, TrackKey }
@@ -27,19 +28,11 @@ public readonly struct Site
 public sealed class Efl
 {
     public const int DataBase = 0x30;
-
-    // size of the fixed struct per render tag. anything past this is track data.
-    // these are the smallest block seen for each tag, ie the case with no tracks.
     static readonly Dictionary<int, int> Fixed = new()
     {
         [0] = 0x1A0, [1] = 0x1C0, [2] = 0x1F0, [4] = 0x060,
         [5] = 0x140, [6] = 0x260, [10] = 0x080, [20] = 0x1C0,
     };
-
-    // second colour pair, offset depends on the tag because the tags are
-    // different subclasses. tags 0 and 2 don't have one. easy to miss by eye
-    // because the alpha is often 00, so 0x00003dff reads as a small int rather
-    // than a blue at zero opacity.
     static readonly Dictionary<int, int> SecondColour = new() { [6] = 0x178, [4] = 0x58 };
 
     public byte[] Data;
@@ -51,7 +44,7 @@ public sealed class Efl
     {
         Data = bytes;
         if (Data.Length < 0x30 || Data[0] != 'E' || Data[1] != 'F' || Data[2] != 'L' || Data[3] != 0)
-            throw new InvalidDataException("Not an EFL file.");
+            throw new InvalidDataException("Not an EFL file - missing the EFL\\0 magic.");
 
         int total = U32(8);
         if (total + DataBase != Data.Length)
@@ -69,7 +62,7 @@ public sealed class Efl
                 int p = DataBase + i * 16 + j * 4;
 
                 // packed [u8 tag][u24 offset], and the offset is relative to
-                // 0x30, an offset of 0 means null.
+                // 0x30, not 0. an offset of 0 means null.
                 int off = Data[p + 1] | (Data[p + 2] << 8) | (Data[p + 3] << 16);
                 row[j] = (Data[p], off == 0 ? -1 : DataBase + off);
             }
@@ -94,11 +87,17 @@ public sealed class Efl
         return set.ToList();
     }
 
+    // nothing in the file stores a block size, so it's the gap to whatever
+    // starts next. same deal for the counts - unique the node table.
+    // per-file override, so one odd block can't break the whole parse
     readonly Dictionary<int, int> _fixed = new();
 
     int FixedFor(int tag) =>
         _fixed.TryGetValue(tag, out int v) ? v : Fixed.TryGetValue(tag, out int d) ? d : 0;
 
+    // if a block comes in under the table value, the table is wrong for this
+    // file. drop to the smallest one actually present rather than reading off
+    // the end of it, which is what "no longer reads correctly" used to mean.
     void TightenFixed()
     {
         foreach (var (off, size, tag) in RenderBlocks())
@@ -123,6 +122,9 @@ public sealed class Efl
         return outp;
     }
 
+    // the count byte on its own will fool you. a gap record can start 00 00 02 02
+    // which reads as 2 keys and gives you frame numbers in the billions. real
+    // tracks have small frames going up, so check those too.
     bool TrackOk(int p, int count, int end)
     {
         if (count < 1 || count > 32) return false;
@@ -147,7 +149,8 @@ public sealed class Efl
     }
 
     // every offset holding a colour. three kinds: the pair at 0x48, the tag
-    // dependent second pair, and colour keys inside the tracks.
+    // dependent second pair, and colour keys inside the tracks. miss the second
+    // pair and the effect fades back to its old colour partway through.
     public List<Site> ColourSites()
     {
         var sites = new List<Site>();
@@ -179,7 +182,7 @@ public sealed class Efl
                         if (!LooksLikeFloat(v0)) colourish++;
                     }
 
-                    // all keys in a track are the same type
+                    // all keys in a track are the same type, so judge the track
                     if (live > 0 && colourish * 2 > live)
                         for (int k = 0; k < count; k++)
                         {
@@ -216,7 +219,7 @@ public sealed class Efl
         return Math.Max(r, Math.Max(g, b)) - Math.Min(r, Math.Min(g, b)) <= 24;
     }
 
-    // undo is just a stack of these...
+    // undo is just a stack of these. files are ~35 KB so copying is nothing.
     public byte[] Snapshot() => (byte[])Data.Clone();
 
     public void Restore(byte[] snap)
@@ -224,7 +227,8 @@ public sealed class Efl
         if (snap != null && snap.Length == Data.Length) Array.Copy(snap, Data, Data.Length);
     }
 
-    // writes into this copy at the offsets given, which is what lets you do one recolour and then another on top of it. returns the number of sites changed.
+    // writes into this copy at the offsets given, which is what lets you do one
+    // part of the ramp at a time - each apply lands and the next starts from it.
     public int ApplyTo(IEnumerable<Site> sites, Recolour rc)
     {
         int n = 0;
@@ -272,6 +276,7 @@ public sealed class Efl
     }
 
     public static int AlphaOf(uint c) => (int)((c >> 24) & 255);
+
     static double Value(uint c)
     {
         RgbToHsv((int)(c & 255), (int)((c >> 8) & 255), (int)((c >> 16) & 255),
@@ -279,7 +284,8 @@ public sealed class Efl
         return v;
     }
 
-    // nothing should have moved. same size, header still adds up, every render block still reads correctly, and the list of colour sites is the same. returns null if all is well, otherwise a string describing what changed.
+    // nothing should have moved. same size, header still adds up, every render
+    // block still walks end to end.
     public string Verify(Efl before)
     {
         if (Data.Length != before.Data.Length) return "the file changed size";
@@ -302,6 +308,7 @@ public sealed class Efl
     }
 
     // System.Drawing gives HSL, not HSV, and we want value so the trail keeps
+    // its falloff. so do it by hand.
     public static void RgbToHsv(int r, int g, int b, out double h, out double s, out double v)
     {
         double rf = r / 255.0, gf = g / 255.0, bf = b / 255.0;
@@ -339,7 +346,8 @@ public sealed class Efl
         return live.Count == 0 ? 1 : live.Count(IsNeutral) / (double)live.Count;
     }
 
-    // contrast pivots here rather than 0.5. a smear's brightness sits up near 1.0, so if you scale it down from 0.5 it goes black. the mean value is a better pivot for the file's own brightness.
+    // contrast pivots here rather than 0.5. a smear's brightness sits up near
+    // white, so pivoting at 0.5 just clips the lot to full and does nothing.
     public double MeanValue()
     {
         double sum = 0; int n = 0;
@@ -354,8 +362,8 @@ public sealed class Efl
         return n == 0 ? 0.5 : sum / n;
     }
 
-    // circular mean over the coloured sites, greys ignored. shift rotates relative to the dominant hue, so this is the hue to shift from. if there are no coloured sites, returns 0.
-
+    // circular mean over the coloured sites, greys ignored. shift rotates
+    // relative to this so the file's palette moves as a unit.
     public double DominantHue()
     {
         double x = 0, y = 0;
@@ -390,7 +398,11 @@ public sealed class Efl
         public double Val = 1.0;
         public double Contrast = 1.0;
         public double Pivot = 0.5;
+        // scales what's already there. 1 leaves alpha alone, which is the
+        // default, because alpha is usually driving the fade and you rarely
+        // want to flatten it.
         public double AlphaScale = 1.0;
+        // set every alpha to one value instead of scaling. null = don't.
         public int? AlphaSet;
         public Mode Mode = Mode.Tint;
         public bool KeepWhite;
@@ -398,6 +410,9 @@ public sealed class Efl
 
         const double GreyCut = 0.06;
 
+        // hue and saturation are set, brightness is scaled. the file's own value
+        // channel is the falloff and that's the bit worth keeping, so scaling it
+        // preserves the shape where setting would flatten it.
         public uint Apply(uint argb)
         {
             uint a = (argb >> 24) & 255;
@@ -407,7 +422,8 @@ public sealed class Efl
             RgbToHsv((int)(argb & 255), (int)((argb >> 8) & 255), (int)((argb >> 16) & 255),
                      out double h, out double s, out double v);
 
-            // capcom left hulk's white highlights alone when they did costume 2
+            // capcom left hulk's white highlights alone when they did costume 2.
+            // still lets an alpha change through, that's a separate decision.
             if (KeepWhite && s <= GreyCut && v >= 0.98)
                 return (a << 24) | (argb & 0xFFFFFF);
 

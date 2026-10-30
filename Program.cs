@@ -1,4 +1,4 @@
-// Program.cs
+// Program.cs - the window.
 // by ArcherOfLegend
 
 using System.Drawing.Drawing2D;
@@ -17,13 +17,13 @@ static class Program
 
 static class Ink
 {
-    public static readonly Color Bg   = Color.FromArgb(0x0F, 0x0F, 0x11);
+    public static readonly Color Bg = Color.FromArgb(0x0F, 0x0F, 0x11);
     public static readonly Color Card = Color.FromArgb(0x18, 0x18, 0x1B);
     public static readonly Color Line = Color.FromArgb(0x27, 0x27, 0x2B);
     public static readonly Color Text = Color.FromArgb(0xEC, 0xEC, 0xEE);
-    public static readonly Color Dim  = Color.FromArgb(0x7C, 0x7C, 0x85);
+    public static readonly Color Dim = Color.FromArgb(0x7C, 0x7C, 0x85);
     public static readonly Color Good = Color.FromArgb(0x5F, 0xD3, 0x8D);
-    public static readonly Color Bad  = Color.FromArgb(0xE5, 0x6B, 0x6B);
+    public static readonly Color Bad = Color.FromArgb(0xE5, 0x6B, 0x6B);
 
     public static Font Ui(float s = 9.5f) => new("Segoe UI", s);
     public static Font Mono(float s = 9f) => new("Consolas", s);
@@ -31,18 +31,27 @@ static class Ink
 
     public static Label Eyebrow(string t) => new()
     {
-        Text = t.ToUpperInvariant(), AutoSize = true, ForeColor = Dim,
-        Font = Small(), Margin = new Padding(0, 0, 0, 10),
+        Text = t.ToUpperInvariant(),
+        AutoSize = true,
+        ForeColor = Dim,
+        Font = Small(),
+        Margin = new Padding(0, 0, 0, 10),
     };
 
     public static Button Btn(string text)
     {
         var b = new Button
         {
-            Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            FlatStyle = FlatStyle.Flat, Font = Ui(),
-            Padding = new Padding(16, 9, 16, 9), Margin = new Padding(0),
-            BackColor = Card, ForeColor = Text, Cursor = Cursors.Hand,
+            Text = text,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlatStyle = FlatStyle.Flat,
+            Font = Ui(),
+            Padding = new Padding(16, 9, 16, 9),
+            Margin = new Padding(0),
+            BackColor = Card,
+            ForeColor = Text,
+            Cursor = Cursors.Hand,
         };
         b.FlatAppearance.BorderColor = Line;
         b.FlatAppearance.MouseOverBackColor = Color.FromArgb(0x2C, 0x2C, 0x31);
@@ -61,7 +70,11 @@ class Card : Panel
     {
         base.OnPaint(e);
         using var p = new Pen(Ink.Line);
-        e.Graphics.DrawRectangle(p, 0, 0, Width - 1, Height - 1);
+        // offset by the scroll position so the outline stays pinned to the
+        // visible edge instead of sliding away when the card scrolls
+        e.Graphics.DrawRectangle(p,
+            -AutoScrollPosition.X, -AutoScrollPosition.Y,
+            ClientSize.Width - 1, ClientSize.Height - 1);
     }
 }
 
@@ -127,7 +140,8 @@ class Slider : Control
     }
 }
 
-// alpha checkerboard for the sliders and swatch.
+// checkerboard behind the strips so alpha reads at a glance. low alpha lets
+// more of it through, same as any image editor.
 static class Checker
 {
     public static readonly TextureBrush Brush = Build();
@@ -159,6 +173,7 @@ class RampStrip : Control
     public event EventHandler SelectionChanged;
     public event EventHandler SelectionCommitted;
 
+    // PadTop not Top, Control.Top already exists
     const int Lab = 44, RowH = 40, Gap = 12, PadTop = 4;
     int _anchor = -1;
     bool _drag;
@@ -222,62 +237,64 @@ class RampStrip : Control
         SelectionCommitted?.Invoke(this, EventArgs.Empty);
     }
 
+    // ToColor throws the alpha away on purpose elsewhere, but here we want it -
+    // the gradient carries it so the checkerboard shows through the faint ones.
     static Color WithAlpha(uint c) => Color.FromArgb(
-            (int)((c >> 24) & 255), (int)(c & 255), (int)((c >> 8) & 255), (int)((c >> 16) & 255));
+        (int)((c >> 24) & 255), (int)(c & 255), (int)((c >> 8) & 255), (int)((c >> 16) & 255));
 
-        static void Strip(Graphics g, Rectangle r, List<uint> cols)
+    static void Strip(Graphics g, Rectangle r, List<uint> cols)
+    {
+        if (cols.Count == 0 || r.Width < 2 || r.Height < 2) return;
+
+        g.FillRectangle(Checker.Brush, r);
+
+        if (cols.Count == 1)
         {
-            if (cols.Count == 0 || r.Width < 2 || r.Height < 2) return;
-
-            g.FillRectangle(Checker.Brush, r);
-
-            if (cols.Count == 1)
-            {
-                using var solid = new SolidBrush(WithAlpha(cols[0]));
-                g.FillRectangle(solid, r);
-                return;
-            }
-            var blend = new ColorBlend(cols.Count)
-            {
-                Colors = cols.Select(WithAlpha).ToArray(),
-                Positions = Enumerable.Range(0, cols.Count)
-                                    .Select(i => i / (float)(cols.Count - 1)).ToArray(),
-            };
-            using var br = new LinearGradientBrush(r, Color.Black, Color.White, 0f)
-            { InterpolationColors = blend };
-            g.FillRectangle(br, r);
+            using var solid = new SolidBrush(WithAlpha(cols[0]));
+            g.FillRectangle(solid, r);
+            return;
         }
+        var blend = new ColorBlend(cols.Count)
+        {
+            Colors = cols.Select(WithAlpha).ToArray(),
+            Positions = Enumerable.Range(0, cols.Count)
+                                  .Select(i => i / (float)(cols.Count - 1)).ToArray(),
+        };
+        using var br = new LinearGradientBrush(r, Color.Black, Color.White, 0f)
+        { InterpolationColors = blend };
+        g.FillRectangle(br, r);
+    }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
         using (var bg = new SolidBrush(Ink.Card)) g.FillRectangle(bg, ClientRectangle);
- 
+
         if (Colours.Count == 0)
         {
             TextRenderer.DrawText(g, "Open a file to see its colours.", Ink.Ui(),
                                   new Point(2, 8), Ink.Dim);
             return;
         }
- 
+
         bool narrowed = Selected.Count > 0;
         var after = Preview == null ? Colours : Colours.Select(c =>
             (!narrowed || Selected.Contains(c)) ? Preview(c) : c).ToList();
- 
+
         var top = new Rectangle(Lab, PadTop, Span, RowH);
         var bot = new Rectangle(Lab, PadTop + RowH + Gap, Span, RowH);
         TextRenderer.DrawText(g, "now", Ink.Mono(8.5f), new Point(0, PadTop + RowH / 2 - 8), Ink.Dim);
         TextRenderer.DrawText(g, "after", Ink.Mono(8.5f), new Point(0, bot.Top + RowH / 2 - 8), Ink.Dim);
         Strip(g, top, Colours);
         Strip(g, bot, after);
- 
+
         if (!narrowed) return;
- 
+
         int lo = int.MaxValue, hi = -1;
         for (int i = 0; i < Colours.Count; i++)
             if (Selected.Contains(Colours[i])) { lo = Math.Min(lo, i); hi = Math.Max(hi, i); }
         if (hi < 0) return;
- 
+
         int x1 = XOf(lo), x2 = XOf(hi + 1);
         using (var veil = new SolidBrush(Color.FromArgb(190, Ink.Card)))
         {
@@ -307,7 +324,6 @@ class MainForm : Form
     readonly Label _file = new();
     readonly Label _status = new(), _hex = new(), _tally = new();
     readonly Slider _hue = new(), _sat = new(), _val = new(), _con = new(), _alpha = new();
-    readonly CheckBox _keepWhite = new(), _alphaSet = new();
     readonly Panel _swatch = new();
     readonly RampStrip _ramp = new();
     readonly DataGridView _grid = new();
@@ -319,11 +335,20 @@ class MainForm : Form
     readonly Button _resetBtn = Ink.Btn("Reset");
     readonly Button[] _sortBtns = { Ink.Btn("Light to dark"), Ink.Btn("RGB") };
     readonly Label _selInfo = new();
-    private static readonly CheckBox checkBox = new();
+    readonly CheckBox _keepWhite = new(), _alphaSet = new();
     readonly Button _tintBtn = Ink.Btn("Tint"), _shiftBtn = Ink.Btn("Shift");
     Mode? _mode;
     double _dominant;
     double _pivot = 0.5;
+
+    // held onto so the smallest usable window can be measured off the real
+    // layout instead of guessed. the hardcoded 940x680 was fine at 100%
+    // scaling and chopped the mode buttons off at 150%.
+    TableLayoutPanel _root;
+    Panel _footerBar;
+    Card _colourCard;
+    FlowLayoutPanel _colourStack;
+    readonly List<Slider> _wide = new();
 
     double Hue => _hue.Value * 360;
     double Sat => _sat.Value;
@@ -333,9 +358,14 @@ class MainForm : Form
 
     Efl.Recolour Settings => new()
     {
-        Hue = Hue, Sat = Sat, Val = Val, Contrast = Con, Pivot = _pivot,
+        Hue = Hue,
+        Sat = Sat,
+        Val = Val,
+        Contrast = Con,
+        Pivot = _pivot,
         Mode = _mode ?? Mode.Tint,
-        KeepWhite = _keepWhite.Checked, DominantHue = _dominant,
+        KeepWhite = _keepWhite.Checked,
+        DominantHue = _dominant,
         AlphaScale = _alphaSet.Checked ? 1.0 : Math.Pow(2, (_alpha.Value - 0.5) * 2),
         AlphaSet = _alphaSet.Checked ? (int)Math.Round(_alpha.Value * 255) : (int?)null,
     };
@@ -350,7 +380,7 @@ class MainForm : Form
         ForeColor = Ink.Text;
         Font = Ink.Ui();
         AutoScaleMode = AutoScaleMode.Dpi;
-        MinimumSize = new Size(940, 680);
+        MinimumSize = new Size(940, 600);
         Size = new Size(1020, 900);
         StartPosition = FormStartPosition.CenterScreen;
         AllowDrop = true;
@@ -362,31 +392,36 @@ class MainForm : Form
             if (f.Length > 0) Open(f[0]);
         };
 
-        var root = new TableLayoutPanel
+        _root = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4,
-            Padding = new Padding(22, 22, 22, 0), BackColor = Ink.Bg,
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 4,
+            Padding = new Padding(22, 22, 22, 0),
+            BackColor = Ink.Bg,
         };
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        root.Controls.Add(FileBar(), 0, 0);
-        root.Controls.Add(Tabs(), 0, 1);
-        root.Controls.Add(RampCard(), 0, 2);
-        root.Controls.Add(Split(), 0, 3);
+        _root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        _root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        _root.Controls.Add(FileBar(), 0, 0);
+        _root.Controls.Add(Tabs(), 0, 1);
+        _root.Controls.Add(RampCard(), 0, 2);
+        _root.Controls.Add(Split(), 0, 3);
 
         // docked to the form, not a row in the table. as a table row it got
         // clipped off the bottom whenever the content ran taller than the window.
-        var footer = new Panel
+        _footerBar = new Panel
         {
-            Dock = DockStyle.Bottom, BackColor = Ink.Bg, AutoSize = true,
+            Dock = DockStyle.Bottom,
+            BackColor = Ink.Bg,
+            AutoSize = true,
             Padding = new Padding(22, 8, 22, 18),
         };
-        footer.Controls.Add(Footer());
+        _footerBar.Controls.Add(Footer());
 
-        Controls.Add(root);
-        Controls.Add(footer);
+        Controls.Add(_root);
+        Controls.Add(_footerBar);
 
         _hue.Value = 0.03;
         _sat.Value = 0.85;
@@ -396,12 +431,70 @@ class MainForm : Form
         Redraw();
     }
 
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        FitMinimum();
+    }
+
+    // dragging the window onto a second monitor with different scaling resizes
+    // every control, so the minimum has to be worked out again.
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        BeginInvoke(new Action(FitMinimum));
+    }
+
+    // the colour card is the tallest fixed lump in the window, and it can't
+    // shrink - sliders and buttons are what they are. so work out how short the
+    // window can get before the card starts losing rows off the bottom, and
+    // stop the user there. measured, not hardcoded, so it still holds at 150%
+    // scaling or on a 4K panel where every control comes back bigger.
+    void FitMinimum()
+    {
+        if (_root == null || _colourStack == null) return;
+
+        int card = _colourStack.PreferredSize.Height + _colourCard.Padding.Vertical + 2;
+        int above = 0;
+        int[] rows = _root.GetRowHeights();
+        for (int i = 0; i < rows.Length - 1 && i < 3; i++) above += rows[i];
+
+        int chrome = Height - ClientSize.Height;
+        // 120 leaves the colour list a few rows instead of a sliver. it has its
+        // own scrollbar so it doesn't need to fit everything.
+        int want = chrome + _root.Padding.Vertical + above +
+                   _footerBar.Height + card + 120;
+
+        // same deal sideways. the footer is one non-wrapping row, so Save falls
+        // off the right edge if the window gets narrower than the buttons.
+        int wantW = 940;
+        if (_footerBar.Controls.Count > 0)
+            wantW = Math.Max(wantW, Width - ClientSize.Width +
+                _footerBar.Controls[0].PreferredSize.Width + _footerBar.Padding.Horizontal);
+
+        // never demand more than the monitor has. on a 768px laptop the card
+        // scrolls instead, which is ugly but at least reachable.
+        var screen = Screen.FromControl(this).WorkingArea;
+        want = Math.Min(want, screen.Height);
+        wantW = Math.Min(wantW, screen.Width);
+
+        MinimumSize = new Size(wantW, want);
+        if (Height < want) Height = want;
+        if (Width < wantW) Width = wantW;
+        if (Height > screen.Height) Height = screen.Height;
+        if (Width > screen.Width) Width = screen.Width;
+    }
+
     Control FileBar()
     {
         var row = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1,
-            AutoSize = true, Margin = new Padding(0, 0, 0, 18), BackColor = Ink.Bg,
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            AutoSize = true,
+            Margin = new Padding(0, 0, 0, 18),
+            BackColor = Ink.Bg,
         };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -429,8 +522,11 @@ class MainForm : Form
     {
         var row = new FlowLayoutPanel
         {
-            Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = false, AutoSize = true, BackColor = Ink.Bg,
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Ink.Bg,
             Margin = new Padding(0, 0, 0, 18),
         };
         _tabAll.Margin = new Padding(0, 0, 6, 0);
@@ -453,19 +549,29 @@ class MainForm : Form
         var card = new Card { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 0, 0, 18) };
         var stack = new FlowLayoutPanel
         {
-            Dock = DockStyle.Top, FlowDirection = FlowDirection.TopDown,
-            WrapContents = false, AutoSize = true, BackColor = Ink.Card, Margin = new Padding(0),
+            Dock = DockStyle.Top,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Ink.Card,
+            Margin = new Padding(0),
         };
 
         var head = new FlowLayoutPanel { AutoSize = true, Margin = new Padding(0, 0, 0, 8), BackColor = Ink.Card };
         head.Controls.Add(new Label
         {
-            Text = "THE COLOUR RAMP", AutoSize = true, ForeColor = Ink.Dim,
-            Font = Ink.Small(), Margin = new Padding(0, 9, 18, 0),
+            Text = "THE COLOUR RAMP",
+            AutoSize = true,
+            ForeColor = Ink.Dim,
+            Font = Ink.Small(),
+            Margin = new Padding(0, 9, 18, 0),
         });
         head.Controls.Add(new Label
         {
-            Text = "sort", AutoSize = true, ForeColor = Ink.Dim, Margin = new Padding(0, 9, 8, 0),
+            Text = "sort",
+            AutoSize = true,
+            ForeColor = Ink.Dim,
+            Margin = new Padding(0, 9, 8, 0),
         });
         for (int i = 0; i < _sortBtns.Length; i++)
         {
@@ -501,8 +607,11 @@ class MainForm : Form
     {
         var row = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1,
-            BackColor = Ink.Bg, Margin = new Padding(0, 0, 0, 18),
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            BackColor = Ink.Bg,
+            Margin = new Padding(0, 0, 0, 18),
         };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
@@ -513,28 +622,51 @@ class MainForm : Form
 
     Control ColourCard()
     {
-        var card = new Card { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0, 0, 18, 0) };
+        // AutoScroll is the backstop. FitMinimum should mean it never kicks in,
+        // but someone on a 1366x768 laptop at 125% can still run out of room,
+        // and a scrollbar beats silently eating the mode buttons.
+        var card = new Card
+        {
+            Dock = DockStyle.Fill,
+            Margin = new Padding(0, 0, 18, 0),
+            AutoScroll = true,
+        };
+        _colourCard = card;
         var stack = new FlowLayoutPanel
         {
-            Dock = DockStyle.Top, FlowDirection = FlowDirection.TopDown,
-            WrapContents = false, AutoSize = true, BackColor = Ink.Card, Margin = new Padding(0),
+            Dock = DockStyle.Top,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Ink.Card,
+            Margin = new Padding(0),
         };
+        _colourStack = stack;
         stack.Controls.Add(Ink.Eyebrow("colour"));
 
         var body = new FlowLayoutPanel
         {
-            FlowDirection = FlowDirection.LeftToRight, WrapContents = false,
-            AutoSize = true, BackColor = Ink.Card, Margin = new Padding(0),
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Ink.Card,
+            Margin = new Padding(0),
         };
 
         var sliders = new FlowLayoutPanel
         {
-            FlowDirection = FlowDirection.TopDown, WrapContents = false,
-            AutoSize = true, BackColor = Ink.Card, Margin = new Padding(0, 0, 20, 0),
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Ink.Card,
+            Margin = new Padding(0, 0, 20, 0),
         };
         Label Cap(string t) => new()
         {
-            Text = t, AutoSize = true, ForeColor = Ink.Dim, Margin = new Padding(0, 0, 0, 3),
+            Text = t,
+            AutoSize = true,
+            ForeColor = Ink.Dim,
+            Margin = new Padding(0, 0, 0, 3),
         };
 
         sliders.Controls.Add(Cap("Hue"));
@@ -586,6 +718,7 @@ class MainForm : Form
         sliders.Controls.Add(alphaCap);
 
         _alpha.Width = 240;
+        // checkerboard behind it so you can actually see what the alpha is doing
         _alpha.Ramp = t =>
         {
             double f = _alphaSet.Checked ? t : Math.Min(1, Math.Pow(2, (t - 0.5) * 2));
@@ -610,8 +743,11 @@ class MainForm : Form
 
         var right = new FlowLayoutPanel
         {
-            FlowDirection = FlowDirection.TopDown, WrapContents = false,
-            AutoSize = true, BackColor = Ink.Card, Margin = new Padding(0),
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Ink.Card,
+            Margin = new Padding(0),
         };
         _swatch.Size = new Size(96, 54);
         _swatch.Margin = new Padding(0, 16, 0, 8);
@@ -628,7 +764,9 @@ class MainForm : Form
         {
             using var d = new ColorDialog
             {
-                Color = Picked, FullOpen = true, AnyColor = true,
+                Color = Picked,
+                FullOpen = true,
+                AnyColor = true,
                 CustomColors = new[] { ColorToOle(Picked) },
             };
             if (d.ShowDialog(this) != DialogResult.OK) return;
@@ -647,12 +785,17 @@ class MainForm : Form
 
         var modeRow = new FlowLayoutPanel
         {
-            FlowDirection = FlowDirection.LeftToRight, WrapContents = false,
-            AutoSize = true, BackColor = Ink.Card, Margin = new Padding(0, 14, 0, 0),
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Ink.Card,
+            Margin = new Padding(0, 14, 0, 0),
         };
         modeRow.Controls.Add(new Label
         {
-            Text = "Mode", AutoSize = true, ForeColor = Ink.Dim,
+            Text = "Mode",
+            AutoSize = true,
+            ForeColor = Ink.Dim,
             Margin = new Padding(0, 9, 10, 0),
         });
         _tintBtn.Margin = new Padding(0, 0, 6, 0);
@@ -661,20 +804,34 @@ class MainForm : Form
         _shiftBtn.Click += (s, e) => { _mode = Mode.Shift; Redraw(); };
         modeRow.Controls.Add(_tintBtn);
         modeRow.Controls.Add(_shiftBtn);
+        stack.Controls.Add(modeRow);
 
+        // on its own line rather than trailing the mode buttons. that row
+        // doesn't wrap, so at 150% scaling the label ran past the card edge.
         _keepWhite.Text = "Keep white highlights";
         _keepWhite.AutoSize = true;
         _keepWhite.ForeColor = Ink.Dim;
-        _keepWhite.Margin = new Padding(0, 8, 0, 0);
+        _keepWhite.Margin = new Padding(0, 12, 0, 0);
         _keepWhite.CheckedChanged += (s, e) => Redraw();
-        modeRow.Controls.Add(_keepWhite);
-        stack.Controls.Add(modeRow);
+        stack.Controls.Add(_keepWhite);
 
         _hex.AutoSize = true;
         _hex.Font = Ink.Mono(9.5f);
         _hex.ForeColor = Ink.Dim;
         _hex.Margin = new Padding(0, 12, 0, 0);
         stack.Controls.Add(_hex);
+
+        // sliders were pinned at 240px, which looked deliberate at 1020 wide and
+        // like a mistake maximised on a 4K panel - half the card empty next to a
+        // stubby hue bar. they take whatever's left over from the swatch now.
+        _wide.AddRange(new[] { _hue, _sat, _val, _alpha, _con });
+        card.Resize += (s, e) =>
+        {
+            int w = card.ClientSize.Width - card.Padding.Horizontal
+                    - right.PreferredSize.Width - sliders.Margin.Right;
+            w = Math.Clamp(w, 180, 520);
+            foreach (var sl in _wide) sl.Width = w;
+        };
 
         card.Controls.Add(stack);
         return card;
@@ -686,8 +843,12 @@ class MainForm : Form
 
         var head = new TableLayoutPanel
         {
-            Dock = DockStyle.Top, ColumnCount = 2, RowCount = 1,
-            AutoSize = true, BackColor = Ink.Card, Margin = new Padding(0, 0, 0, 12),
+            Dock = DockStyle.Top,
+            ColumnCount = 2,
+            RowCount = 1,
+            AutoSize = true,
+            BackColor = Ink.Card,
+            Margin = new Padding(0, 0, 0, 12),
         };
         head.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         head.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -698,8 +859,11 @@ class MainForm : Form
         head.Controls.Add(_tally, 0, 0);
         head.Controls.Add(new Label
         {
-            Text = "COLOURS", AutoSize = true, ForeColor = Ink.Dim,
-            Font = Ink.Small(), Margin = new Padding(0, 6, 0, 0),
+            Text = "COLOURS",
+            AutoSize = true,
+            ForeColor = Ink.Dim,
+            Font = Ink.Small(),
+            Margin = new Padding(0, 6, 0, 0),
         }, 1, 0);
 
         StyleGrid();
@@ -710,16 +874,16 @@ class MainForm : Form
         return card;
     }
 
-    static Color Blend(Color c, int alpha)
-        {
-            double f = alpha / 255.0;
-            return Color.FromArgb(
-                (int)(Ink.Card.R + (c.R - Ink.Card.R) * f),
-                (int)(Ink.Card.G + (c.G - Ink.Card.G) * f),
-                (int)(Ink.Card.B + (c.B - Ink.Card.B) * f));
-        }
-
     // DataGridView doesn't expose DoubleBuffered, hence the reflection
+    static Color Blend(Color c, int alpha)
+    {
+        double f = alpha / 255.0;
+        return Color.FromArgb(
+            (int)(Ink.Card.R + (c.R - Ink.Card.R) * f),
+            (int)(Ink.Card.G + (c.G - Ink.Card.G) * f),
+            (int)(Ink.Card.B + (c.B - Ink.Card.B) * f));
+    }
+
     static void Buffer(Control c)
     {
         typeof(Control)
@@ -776,13 +940,17 @@ class MainForm : Form
 
         void Col(string h, int weight) => _grid.Columns.Add(new DataGridViewTextBoxColumn
         {
-            HeaderText = h, FillWeight = weight, SortMode = DataGridViewColumnSortMode.NotSortable,
+            HeaderText = h,
+            FillWeight = weight,
+            SortMode = DataGridViewColumnSortMode.NotSortable,
         });
 
         // fixed width, otherwise Fill mode stretches the swatches to 140px
         void Chip() => _grid.Columns.Add(new DataGridViewTextBoxColumn
         {
-            HeaderText = "", Width = 26, MinimumWidth = 26,
+            HeaderText = "",
+            Width = 26,
+            MinimumWidth = 26,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.None,
             SortMode = DataGridViewColumnSortMode.NotSortable,
         });
@@ -801,8 +969,11 @@ class MainForm : Form
     {
         var row = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1,
-            AutoSize = true, BackColor = Ink.Bg,
+            Dock = DockStyle.Fill,
+            ColumnCount = 3,
+            RowCount = 1,
+            AutoSize = true,
+            BackColor = Ink.Bg,
         };
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -818,8 +989,11 @@ class MainForm : Form
 
         var acts = new FlowLayoutPanel
         {
-            FlowDirection = FlowDirection.LeftToRight, WrapContents = false,
-            AutoSize = true, BackColor = Ink.Bg, Margin = new Padding(0),
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            BackColor = Ink.Bg,
+            Margin = new Padding(0),
         };
         _clearBtn.Margin = new Padding(0, 0, 14, 0);
         _clearBtn.Click += (s, e) =>
@@ -888,7 +1062,7 @@ class MainForm : Form
         return _sites.Where(s => _ramp.Selected.Contains(_orig.Colour(s.Offset))).ToList();
     }
 
-    // absolute edit
+    // absolute edit, separate from the hue/sat transform. alpha is kept.
     void EditRows()
     {
         if (_work == null || _grid.SelectedRows.Count == 0) return;
@@ -899,9 +1073,12 @@ class MainForm : Form
         if (rows.Count == 0) return;
 
         uint seed = _work.Colour(_sites[rows[0]].Offset);
+        int keepA = Efl.AlphaOf(seed);
         using var d = new ColorDialog
         {
-            Color = Efl.ToColor(seed), FullOpen = true, AnyColor = true,
+            Color = Efl.ToColor(seed),
+            FullOpen = true,
+            AnyColor = true,
             CustomColors = new[] { Efl.ToColor(seed).R | (Efl.ToColor(seed).G << 8) | (Efl.ToColor(seed).B << 16) },
         };
         if (d.ShowDialog(this) != DialogResult.OK) return;
@@ -931,7 +1108,7 @@ class MainForm : Form
         int n = _work.ApplyTo(hit, Settings);
         _dominant = _work.DominantHue();
         _pivot = _work.MeanValue();
-        Say(n == 0 ? "Nothing changed." : $"Recoloured {n} sites.", n == 0);
+        Say(n == 0 ? "Nothing changed - those colours already match." : $"Recoloured {n} sites.", n == 0);
         Redraw();
     }
 
@@ -962,7 +1139,8 @@ class MainForm : Form
         _status.ForeColor = bad ? Ink.Bad : Ink.Dim;
     }
 
-    // Dragging a slider fires this dozens of times a second and clearing 260 rows each time is what made it slow.
+    // full=false skips rebuilding the grid. dragging a slider fires this dozens
+    // of times a second and clearing 260 rows each time is what made it chug.
     void Redraw() => Redraw(true);
 
     void Redraw(bool full)
@@ -971,10 +1149,10 @@ class MainForm : Form
         _sat.Invalidate();
         _hue.Invalidate();
         string alphaBit = _alphaSet.Checked
-                    ? $"   alpha = {(int)Math.Round(_alpha.Value * 255)}"
-                    : Math.Abs(_alpha.Value - 0.5) < 0.01
-                        ? ""
-                        : $"   alpha x{Math.Pow(2, (_alpha.Value - 0.5) * 2):0.00}";
+            ? $"   alpha = {(int)Math.Round(_alpha.Value * 255)}"
+            : Math.Abs(_alpha.Value - 0.5) < 0.01
+                ? ""
+                : $"   alpha x{Math.Pow(2, (_alpha.Value - 0.5) * 2):0.00}";
         _hex.Text = !_mode.HasValue
             ? "pick Tint or Shift to start"
             : $"#{Picked.R:X2}{Picked.G:X2}{Picked.B:X2}"
@@ -1020,10 +1198,10 @@ class MainForm : Form
                 : $"{_ramp.Selected.Count} of {_ramp.Colours.Count} colours picked \u2022 Apply hits {target.Count} sites";
         if (_parts && _ramp.Selected.Count == 0) _selInfo.ForeColor = Ink.Dim;
 
-        _tabAll.BackColor   = !_parts ? Color.FromArgb(0x30, 0x30, 0x36) : Ink.Card;
-        _tabParts.BackColor =  _parts ? Color.FromArgb(0x30, 0x30, 0x36) : Ink.Card;
-        _tabAll.ForeColor   = !_parts ? Ink.Text : Ink.Dim;
-        _tabParts.ForeColor =  _parts ? Ink.Text : Ink.Dim;
+        _tabAll.BackColor = !_parts ? Color.FromArgb(0x30, 0x30, 0x36) : Ink.Card;
+        _tabParts.BackColor = _parts ? Color.FromArgb(0x30, 0x30, 0x36) : Ink.Card;
+        _tabAll.ForeColor = !_parts ? Ink.Text : Ink.Dim;
+        _tabParts.ForeColor = _parts ? Ink.Text : Ink.Dim;
 
         _ramp.Selectable = _parts;
         _ramp.Cursor = _parts ? Cursors.Hand : Cursors.Default;
@@ -1058,6 +1236,8 @@ class MainForm : Form
                                    "", $"{after:x8}", $"{Efl.AlphaOf(after)}");
             var cb = Efl.ToColor(before);
             var ca = Efl.ToColor(after);
+            // the grid can't do a checkerboard per cell, so fade the swatch
+            // toward the card colour by its alpha instead
             cb = Blend(cb, Efl.AlphaOf(before));
             ca = Blend(ca, Efl.AlphaOf(after));
             _grid.Rows[i].Cells[2].Style.BackColor = cb;
@@ -1072,7 +1252,7 @@ class MainForm : Form
         foreach (int i in keep)
             if (i >= 0 && i < _grid.Rows.Count) _grid.Rows[i].Selected = true;
         _syncing = false;
-        
+
 
         _saveBtn.Enabled = true;
     }
@@ -1090,13 +1270,18 @@ class MainForm : Form
         try
         {
             string problem = _work.Verify(_orig);
-            if (problem != null) { Say("Not saved - " + problem + ".", true); return; }
+            if (problem != null)
+            {
+                Say("Not saved - " + problem + ". this usually means a block is "
+                    + "smaller than the fixed size in Efl.Fixed, not that your edit broke it.", true);
+                return;
+            }
 
             File.WriteAllBytes(d.FileName, _work.Data);
             int diff = 0;
             for (int i = 0; i < _work.Data.Length; i += 4)
                 if (BitConverter.ToUInt32(_work.Data, i) != BitConverter.ToUInt32(_orig.Data, i)) diff++;
-            Say($"Saved {Path.GetFileName(d.FileName)}. {diff} values changed.", false);
+            Say($"Saved {Path.GetFileName(d.FileName)}. {diff} values changed, same size, every block still reads correctly.", false);
         }
         catch (Exception ex)
         {
